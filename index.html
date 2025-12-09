@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Monitoreo - Status Tablas Frame</title>
+
+  <!-- GA4: reemplaza G-XXXXXXXXXX -->
+  <script async src="https://www.googletagmanager.com/gtag/js?id=G-L7VP01QFYH"></script>
+  <script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){ dataLayer.push(arguments); }
+    gtag('js', new Date());
+    gtag('config', 'G-L7VP01QFYH');
+  </script>
+
+  <style>
+    body { font-family: Arial, sans-serif; max-width:800px; margin:40px auto; padding:0 20px; }
+    .card { border-radius:8px; box-shadow:0 2px 6px rgba(0,0,0,0.08); padding:24px; }
+    h1{ margin-top:0 }
+    .btn { display:inline-block; padding:12px 18px; border-radius:6px; background:#0b5cff; color:white; text-decoration:none; }
+    .small { color:#666; font-size:0.9rem; margin-top:12px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Acceder al Dashboard</h1>
+    <p>Haz clic en el botón para abrir el informe de Looker Studio (se abrirá en una nueva pestaña y puede pedir autenticación).</p>
+
+    <!-- Botón que abre el dashboard (reemplaza con tu URL) -->
+    <a href="https://www.googletagmanager.com/gtag/js?id=G-L7VP01QFYH" target="_blank"
+       id="btn-dashboard" class="btn" rel="noopener">
+      Abrir dashboard
+    </a>
+
+    <p class="small">Si necesitas rastrear a un usuario concreto o campaña, añade parámetros UTM: <br>
+      Ej: <code>?utm_source=intranet&utm_medium=boton&utm_campaign=acceso_dashboard</code>
+    </p>
+  </div>
+
+  <script>
+    // Enviar evento a GA4 y luego abrir el dashboard en nueva pestaña de forma fiable.
+    (function(){
+      const btn = document.getElementById('btn-dashboard');
+      const dashboardUrl = btn.getAttribute('href');
+
+      function sendOpenEvent(extra) {
+        // Intentar enviar con sendBeacon si está disponible (más fiable al cerrar pestaña)
+        const payload = {
+          event: 'abrir_dashboard',
+          ...extra
+        };
+
+        // Usamos gtag: preferimos gtag('event',...) pero también fallback con navigator.sendBeacon
+        try {
+          gtag('event', 'abrir_dashboard', extra || {});
+          return Promise.resolve();
+        } catch(e) {
+          // Si gtag no está listo, intentamos sendBeacon (envío simple)
+          try {
+            const body = JSON.stringify({ event: 'abrir_dashboard', attrs: extra || {} });
+            if (navigator.sendBeacon) {
+              navigator.sendBeacon('/__local_capture_placeholder', body);
+              return Promise.resolve();
+            }
+          } catch(err){}
+          return Promise.resolve();
+        }
+      }
+
+      btn.addEventListener('click', function(ev){
+        ev.preventDefault();
+
+        // Leemos parámetros UTM de la URL actual (si existen)
+        const params = new URLSearchParams(window.location.search);
+        const utm_source = params.get('utm_source') || 'landing';
+        const utm_medium = params.get('utm_medium') || 'boton';
+        const utm_campaign = params.get('utm_campaign') || 'acceso_dashboard';
+
+        const extra = {
+          utm_source, utm_medium, utm_campaign,
+          page_title: document.title
+        };
+
+        // Enviamos evento y esperamos un cortísimo lapso para garantizar envío
+        sendOpenEvent(extra);
+
+        // Abrimos el dashboard en nueva pestaña. No bloqueamos al usuario más de 250ms.
+        const newUrl = dashboardUrl + (dashboardUrl.includes('?') ? '&' : '?') +
+                       `utm_source=${encodeURIComponent(utm_source)}&utm_medium=${encodeURIComponent(utm_medium)}&utm_campaign=${encodeURIComponent(utm_campaign)}`;
+
+        // Abrir inmediatamente (evita popup blockers) y dejar que el evento se envíe en background
+        window.open(newUrl, '_blank', 'noopener');
+
+        // Opcional: registrar en consola
+        console.log('Evento abrir_dashboard enviado y abriendo:', newUrl);
+      });
+    })();
+  </script>
+</body>
+</html>
