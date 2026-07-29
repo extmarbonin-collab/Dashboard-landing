@@ -1,0 +1,25 @@
+{
+  "mcpServers": {
+    "MCP_FURY": {
+      "type": "http",
+      "url": "https://mcp-furydocs-prod-mcp.melioffice.com/mcp/",
+      "headers": {
+        "dataflow-token": "v6fepx55x4orhhy6dth3qeh3wlii47ua7dd5oco7zhmk2ltc"
+      }
+    },
+    "MCP_Bigquery_Insight": {
+      "type": "http",
+      "url": "https://app-mcp-bigquery-insight-mcp.melioffice.com/mcp/",
+      "headers": {
+        "dataflow-token": "v6fepx55x4orhhy6dth3qeh3wlii47ua7dd5oco7zhmk2ltc"
+      }
+    },
+    "MCP-DataFlow": {
+      "type": "http",
+      "url": "https://dataflow-mcp.melioffice.com/mcp",
+      "headers": {
+        "dataflow-token": "v6fepx55x4orhhy6dth3qeh3wlii47ua7dd5oco7zhmk2ltc"
+      }
+    }
+  }
+}
