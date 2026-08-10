@@ -1,0 +1,11 @@
+-- Actualiza campos de elegibilidad en todo el historial de FADS DAILY CAMPAIGN.
+-- Sin filtro de fecha: son campos de foto actual que se propagan a todos los registros del seller.
+UPDATE `pdme000840-id3am42qxoa-furyid.TBL.DM_FRAME_FADS_DAILY_CAMPAIGN` AS X
+SET
+    X.REPUTACION_ACTUAL            = Y.REPUTACION_ACTUAL,
+    X.BILLING_STRATEGY_ACTUAL      = Y.BILLING_STRATEGY_ACTUAL,
+    X.FLAG_MI_PAGINA_ACTIVA_ACTUAL = Y.FLAG_MI_PAGINA_ACTIVA_ACTUAL,
+    X.FLAG_ELEGIBLE_ACTUAL         = Y.FLAG_ELEGIBLE_ACTUAL
+FROM `pdme000840-id3am42qxoa-furyid.STG.LK_FADS_SELLERS_ELEGIBILIDAD_ACTUAL` AS Y
+WHERE X.SIT_SITE_ID = Y.SIT_SITE_ID
+  AND X.SELLER_ID   = Y.SELLER_ID;

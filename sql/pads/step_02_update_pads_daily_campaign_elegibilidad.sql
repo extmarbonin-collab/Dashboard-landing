@@ -1,0 +1,7 @@
+-- Actualiza CAN_BE_ADV en todo el historial de PADS DAILY CAMPAIGN.
+-- Sin filtro de fecha: es un campo de foto actual que se propaga a todos los registros del seller.
+UPDATE `pdme000840-id3am42qxoa-furyid.TBL.DM_FRAME_PADS_DAILY_CAMPAIGN` AS X
+SET X.CAN_BE_ADV = Y.CAN_BE_ADV
+FROM `pdme000840-id3am42qxoa-furyid.STG.POTENTIAL_ADVERTISERS` AS Y
+WHERE X.SIT_SITE_ID = Y.SIT_SITE_ID
+  AND X.SELLER_ID   = Y.SELLER_ID;

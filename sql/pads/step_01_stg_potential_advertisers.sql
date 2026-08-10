@@ -1,0 +1,195 @@
+CREATE OR REPLACE TABLE `pdme000840-id3am42qxoa-furyid.STG.POTENTIAL_ADVERTISERS` AS
+
+WITH
+TGMVS AS (
+  SELECT
+    A.SIT_SITE_ID AS SITE_ID,
+    CAST(ORD_SELLER.ID AS INT64)                           AS SELLER_ID,
+    CONCAT(A.SIT_SITE_ID, CAST(ITE_ITEM_ID AS STRING))    AS ITEM_ID
+  FROM `meli-bi-data.WHOWNER.BT_ORD_ORDERS` A
+  WHERE A.SIT_SITE_ID IN ('MLA','MLB','MLM','MCO','MLC','MLU','MEC','MPE')
+    AND ORD_CLOSED_DT BETWEEN DATE_SUB(CURRENT_DATE, INTERVAL 30 DAY) AND DATE_SUB(CURRENT_DATE, INTERVAL 1 DAY)
+    AND ORD_TGMV_FLG IS TRUE
+    AND ORD_CATEGORY.MARKETPLACE_ID = 'TM'
+    AND ORD_CLOSED_DT IS NOT NULL
+  GROUP BY 1, 2, 3
+),
+
+BASE_CBT AS (
+  SELECT DISTINCT USER_ID AS SELLER_ID
+  FROM `meli-bi-data.WHOWNER.LK_CBT_USERS`
+),
+
+PAYCHECK AS (
+  SELECT DISTINCT CUS_CUST_ID AS SELLER_ID
+  FROM (
+    SELECT
+      A.CUS_CUST_ID,
+      A.PAYCHECK,
+      ROW_NUMBER() OVER (PARTITION BY A.CUS_CUST_ID ORDER BY A.LAST_UPDATED DESC) AS RN
+    FROM `meli-bi-data.WHOWNER.BT_FBA_PAYCHECK_HISTORY` A
+    WHERE A.DATE_CREATED >= DATE_SUB(CURRENT_DATE, INTERVAL 365 DAY)
+  )
+  WHERE RN = 1 AND PAYCHECK = 'IN'
+),
+
+REPUTACION AS (
+  SELECT
+    cus_cust_id_sel AS SELLER_ID,
+    rep_current_level AS REPUTACION
+  FROM `meli-bi-data.WHOWNER.BT_REP_SELLER_REPUTATION`
+),
+
+REGLAS_CONTRATACION AS (
+  SELECT
+    cust.CUS_CUST_ID     AS SELLER_ID,
+    cust.SIT_SITE_ID_CUS AS SITE_ID,
+    cartera              AS CARTERA
+  FROM `meli-bi-data.WHOWNER.LK_CUS_CUSTOMERS_DATA` cust
+  LEFT JOIN REPUTACION rep ON rep.SELLER_ID = cust.CUS_CUST_ID
+  LEFT JOIN `meli-bi-data.WHOWNER.LK_KYC_VAULT_USER` kyc ON kyc.CUS_CUST_ID = cust.CUS_CUST_ID
+  LEFT JOIN BASE_CBT cbt ON cbt.SELLER_ID = cust.CUS_CUST_ID
+  LEFT JOIN `meli-bi-data.SBOX_MADSSELFSERVICE.LK_BC_CARTERA_ACTUAL` car
+    ON car.seller_id   = cust.CUS_CUST_ID
+   AND car.sit_site_id = cust.SIT_SITE_ID_CUS
+   AND tipo_dato       = 'CUST_ID'
+  WHERE cust.CUS_CUST_STATUS = 'active'
+    AND cust.SIT_SITE_ID_CUS IN ('MLA','MLB','MLM','MCO','MLC','MLU','MEC','MPE')
+    AND (
+      (kyc.KYC_ENTITY_TYPE = 'company'
+        AND rep.REPUTACION IN ('newbie','green','green_silver','green_gold','green_platinum','light_green','yellow')
+      )
+      OR (kyc.KYC_ENTITY_TYPE = 'person'
+        AND (kyc.KYC_FIS_IDNT_CUST_TYPE = 'BU' OR cbt.SELLER_ID IS NOT NULL)
+        AND rep.REPUTACION IN ('newbie','green','green_silver','green_gold','green_platinum','light_green','yellow')
+      )
+      OR (rep.REPUTACION IN ('green','green_silver','green_gold','green_platinum','light_green','yellow'))
+    )
+),
+
+ITEMS_ACTIVOS AS (
+  SELECT DISTINCT CUS_CUST_ID_SEL AS SELLER_ID
+  FROM `meli-bi-data.WHOWNER.LK_ITE_ITEMS`
+  WHERE ITE_ITEM_STATUS            = 'active'
+    AND NOT IS_TEST
+    AND ITE_ITEM_BUYING_MODE       = 'buy_it_now'
+    AND ITE_ITEM_MARKETPLACE_FLG   IS TRUE
+    AND ITE_ITEM_CONDITION         = 'new'
+    AND ITE_ITEM_LL_FLG            IS TRUE
+    AND ITE_ITEM_QUANTITY_AVAILABLE > 0
+    AND ITE_ITEM_CLASSIFIED_FLG    IS FALSE
+    AND ITE_ITEM_PROXIMITY_FLG     IS FALSE
+),
+
+ANTIGUEDAD_OK AS (
+  SELECT
+    cust.CUS_CUST_ID AS SELLER_ID,
+    CASE
+      WHEN kyc.KYC_ENTITY_TYPE = 'company'                                        THEN 1
+      WHEN kyc.KYC_ENTITY_TYPE = 'person' AND kyc.KYC_FIS_IDNT_CUST_TYPE = 'BU'  THEN 1
+      WHEN kyc.KYC_ENTITY_TYPE = 'person' AND cbt.SELLER_ID IS NOT NULL            THEN 1
+      ELSE CASE WHEN DATE_DIFF(CURRENT_DATE(), COALESCE(cust.CUS_RU_SINCE_DT, CURRENT_DATE()), DAY) >= 15 THEN 1 ELSE 0 END
+    END AS ANTIGUEDAD_OK
+  FROM `meli-bi-data.WHOWNER.LK_CUS_CUSTOMERS_DATA` cust
+  LEFT JOIN `meli-bi-data.WHOWNER.LK_KYC_VAULT_USER` kyc ON kyc.CUS_CUST_ID = cust.CUS_CUST_ID
+  LEFT JOIN BASE_CBT cbt ON cbt.SELLER_ID = cust.CUS_CUST_ID
+  WHERE cust.SIT_SITE_ID_CUS IN ('MLA','MLB','MLM','MCO','MLC','MLU','MEC','MPE')
+    AND cust.CUS_RU_SINCE_DT IS NOT NULL
+),
+
+LAST_LOGIN AS (
+  SELECT DISTINCT usr.user_id AS SELLER_ID
+  FROM `meli-bi-data.WHOWNER.TRACKS`
+  WHERE path IN ('/login/auth/challenge','/home','/seller_central/summary','/seller_central/listings/list','/seller_central/questions')
+    AND type               = 'view'
+    AND application.site_id IN ('MLA','MLB','MLM','MCO','MLC','MLU','MEC','MPE')
+    AND DS BETWEEN CURRENT_DATE - 30 AND CURRENT_DATE - 1
+),
+
+TUVO_PADS AS (
+  SELECT SELLER_ID
+  FROM `meli-bi-data.WHOWNER.BT_ADS_PADS_METRICS_DAILY`
+  WHERE EVENT_LOCAL_DT >= DATE_SUB(CURRENT_DATE(), INTERVAL 90 DAY)
+    AND SIT_SITE_ID IN ('MLA','MLB','MLM','MCO','MLC','MLU','MEC','MPE')
+  GROUP BY SELLER_ID
+  HAVING SUM(PRINTS_QTY) > 0
+),
+
+TIENE_PADS AS (
+  SELECT DISTINCT SELLER_ID
+  FROM `meli-bi-data.WHOWNER.LK_ADS_PADS_ADVERTISER_SETTINGS` A
+  LEFT JOIN `meli-bi-data.WHOWNER.LK_ADS_RELATIONS` B
+    ON B.ADVERTISER_ID    = A.ADVERTISER_ID
+   AND B.RELATION_TYPE    = 'principal_seller'
+   AND B.RELATION_STATUS  = 'ACTIVE'
+   AND B.IS_CURRENT_FLAG  IS TRUE
+  WHERE A.PADS_STATUS     = 'acquired'
+    AND A.TEST_FLAG       = FALSE
+    AND A.IS_CURRENT_FLAG = TRUE
+),
+
+CONTRATA_LANDING AS (
+  SELECT DISTINCT
+    DATE(ds)                      AS FECHA,
+    site                          AS SITE_ID,
+    CAST(usr.user_id AS STRING)   AS SELLER_ID
+  FROM `meli-bi-data.MELIDATA.TRACKS`
+  WHERE ds >= DATE_SUB(CURRENT_DATE(), INTERVAL 90 DAY)
+    AND site IN ('MLA','MLB','MLM','MCO','MLC','MLU','MEC','MPE')
+    AND path = '/advertising/pads2/landing/contract_confirmation/confirm'
+    AND 'test_user' NOT IN UNNEST(usr.user_tags)
+),
+
+EXTRA_SALES AS (
+  SELECT SELLER_ID, ESTIMATED_EXTRA_SALES_30D
+  FROM `meli-bi-data.SBOX_MELI_BI_ADS.ET_EXTRA_SALES`
+),
+
+PROMESA_SALES AS (
+  SELECT REPUTACION, PROMESA_VENTAS
+  FROM `meli-bi-data.SBOX_MELI_BI_ADS.ET_EXTRA_SALES_AVERAGE`
+),
+
+CONSOLIDADO_FINAL AS (
+  SELECT DISTINCT
+    a.SELLER_ID,
+    b.ITEM_ID,
+    a.SITE_ID,
+    a.CARTERA,
+    n.REPUTACION,
+    IF(k.SELLER_ID IS NOT NULL, 1, 0)                                AS IS_CBT,
+    IF(e.SELLER_ID IS NOT NULL AND f.ANTIGUEDAD_OK = 1, 1, 0)        AS CAN_BE_ADV,
+    IF(l.SELLER_ID IS NOT NULL, 1, 0)                                AS LOGIN_30DIAS,
+    CASE
+      WHEN es.ESTIMATED_EXTRA_SALES_30D IS NULL
+        OR es.ESTIMATED_EXTRA_SALES_30D < 15
+        OR es.ESTIMATED_EXTRA_SALES_30D > 625
+      THEN ps.PROMESA_VENTAS
+      ELSE es.ESTIMATED_EXTRA_SALES_30D
+    END AS ESTIMATED_EXTRA_SALES_30D
+  FROM REGLAS_CONTRATACION a
+  LEFT JOIN TGMVS           b  ON b.SELLER_ID                    = a.SELLER_ID
+  LEFT JOIN ITEMS_ACTIVOS   e  ON a.SELLER_ID                    = e.SELLER_ID
+  LEFT JOIN ANTIGUEDAD_OK   f  ON a.SELLER_ID                    = f.SELLER_ID
+  LEFT JOIN PAYCHECK         p  ON a.SELLER_ID                    = p.SELLER_ID
+  LEFT JOIN LAST_LOGIN       l  ON CAST(a.SELLER_ID AS STRING)   = l.SELLER_ID
+  LEFT JOIN BASE_CBT         k  ON a.SELLER_ID                    = k.SELLER_ID
+  LEFT JOIN REPUTACION       n  ON a.SELLER_ID                    = n.SELLER_ID
+  LEFT JOIN TUVO_PADS        o  ON o.SELLER_ID                    = a.SELLER_ID
+  LEFT JOIN TIENE_PADS       r  ON r.SELLER_ID                    = a.SELLER_ID
+  LEFT JOIN EXTRA_SALES      es ON es.SELLER_ID                   = a.SELLER_ID
+  LEFT JOIN PROMESA_SALES    ps ON ps.REPUTACION                  = n.REPUTACION
+  LEFT JOIN CONTRATA_LANDING t  ON CAST(t.SELLER_ID AS STRING)   = CAST(a.SELLER_ID AS STRING)
+                                AND t.SITE_ID                     = a.SITE_ID
+  WHERE p.SELLER_ID IS NULL
+    AND r.SELLER_ID IS NULL
+    AND o.SELLER_ID IS NULL
+    AND t.SELLER_ID IS NULL
+)
+
+SELECT
+  SITE_ID   AS SIT_SITE_ID,
+  SELLER_ID,
+  MAX(CAN_BE_ADV) AS CAN_BE_ADV
+FROM CONSOLIDADO_FINAL
+GROUP BY ALL;
